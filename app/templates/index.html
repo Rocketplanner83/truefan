@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fan Control</title>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="180">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      margin: 2rem auto;
+      max-width: 600px;
+      padding: 2rem;
+      border-radius: 8px;
+      background-color: #ffffff;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      transition: background-color 0.3s, color 0.3s;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    ul { list-style: none; padding-left: 0; }
+    li { margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; }
+    .button {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background-color: #007BFF;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    .button:hover { background-color: #0056b3; }
+    button {
+      padding: 0.5rem 1rem;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background-color: #1e7e34; }
+    .danger { background-color: #dc3545; }
+    .danger:hover { background-color: #b02a37; }
+    p, li { font-size: 1.1rem; }
+    .section { margin-bottom: 1.5rem; }
+    canvas { max-width: 100%; margin-top: 1rem; }
+
+    .fan-icon {
+      width: 24px;
+      height: 24px;
+      opacity: 0.7;
+    }
+    .spin {
+      animation-name: spin;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+    }
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    /* 🌙 Dark mode styles */
+    @media (prefers-color-scheme: dark) {
+      body:not(.light-mode) {
+        background-color: #121212;
+        color: #f0f0f0;
+      }
+
+      body:not(.light-mode) .section {
+        background-color: #1e1e1e;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 0 8px rgba(0,0,0,0.5);
+      }
+
+      body:not(.light-mode) canvas {
+        background-color: #222;
+      }
+    }
+
+    body.dark-mode {
+      background-color: #121212 !important;
+      color: #f0f0f0 !important;
+    }
+
+    body.dark-mode .section {
+      background-color: #1e1e1e;
+      box-shadow: 0 0 8px rgba(0,0,0,0.5);
+    }
+
+    body.dark-mode canvas {
+      background-color: #222;
+    }
+  </style>
+</head>
+<body>
+  <h1 style="display: inline-block;">Fan Controller</h1>
+  <button onclick="toggleDarkMode()" style="float: right;">🌓</button>
+
+  <div class="section">
+    <p><strong>Active Profile:</strong> {{ profile }}</p>
+    <p><strong>Uptime:</strong> {{ uptime }}</p>
+    <p><strong>CPU Load:</strong> {{ load['1min'] }}, {{ load['5min'] }}, {{ load['15min'] }}</p>
+  </div>
+
+  <div class="section">
+    <h2>Set Profile</h2>
+    <ul>
+      <li><a href="/set/silent" class="button">Silent</a></li>
+      <li><a href="/set/cool" class="button">Cool</a></li>
+      <li><a href="/set/aggressive" class="button">Aggressive</a></li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Manual Control</h2>
+    <form action="/control">
+      <button type="submit">Apply Control Now</button>
+    </form>
+  </div>
+
+  <div class="section">
+    <h2>Fan Speeds</h2>
+    <ul id="fanList"><li>Loading...</li></ul>
+    <canvas id="fanChart"></canvas>
+  </div>
+
+  <div class="section">
+    <h2>Temperatures</h2>
+    <ul id="tempList"><li>Loading...</li></ul>
+    <canvas id="tempChart"></canvas>
+  </div>
+
+  <div class="section">
+    <h2>Fan Controller Container</h2>
+    <button class="danger" onclick="confirmRestart()">Restart Container</button>
+    <button class="danger" onclick="confirmShutdown()">Shutdown Container</button>
+  </div>
+
+  <script>
+    // 🌗 Dark Mode Toggle + Persistence
+    function applyStoredTheme() {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark") {
+        document.body.classList.add("dark-mode");
+      } else if (saved === "light") {
+        document.body.classList.remove("dark-mode");
+      }
+    }
+
+    function toggleDarkMode() {
+      if (document.body.classList.contains("dark-mode")) {
+        document.body.classList.remove("dark-mode");
+        localStorage.setItem("theme", "light");
+      } else {
+        document.body.classList.add("dark-mode");
+        localStorage.setItem("theme", "dark");
+      }
+    }
+
+    applyStoredTheme();
+
+    let tempHistory = [];
+    let fanHistory = [];
+    const maxDataPoints = 20;
+
+    async function updateSensors() {
+      try {
+        const response = await fetch('/sensors');
+        const data = await response.json();
+
+        const fanListElem = document.getElementById('fanList');
+        fanListElem.innerHTML = '';
+
+        for (const [fan, rpmText] of Object.entries(data.fans)) {
+          const rpm = parseInt(rpmText.replace(/\D/g, ''), 10) || 0;
+
+          const li = document.createElement('li');
+          const img = document.createElement('img');
+          img.src = '/static/icons/cooling-fan.svg';
+          img.alt = 'Fan Icon';
+          img.className = 'fan-icon';
+
+          if (rpm > 0) {
+            const spinDuration = Math.max(0.5, 5000 / rpm).toFixed(2); // Cap minimum duration
+            img.classList.add('spin');
+            img.style.animationDuration = `${spinDuration}s`;
+          }
+
+          const label = document.createElement('span');
+          label.innerHTML = `<strong>${fan}:</strong> ${rpmText}`;
+
+          li.appendChild(img);
+          li.appendChild(label);
+          fanListElem.appendChild(li);
+        }
+
+        const tempListElem = document.getElementById('tempList');
+        tempListElem.innerHTML = '';
+        for (const [label, temp] of Object.entries(data.temps)) {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${label}:</strong> ${temp}`;
+          tempListElem.appendChild(li);
+        }
+
+        const tempValue = parseFloat(Object.values(data.temps)[0]?.replace("°C", "") || 0);
+        const fanValue = parseFloat(Object.values(data.fans)[0]?.replace(" RPM", "") || 0);
+
+        const now = new Date().toLocaleTimeString();
+        tempHistory.push({ t: now, y: tempValue });
+        fanHistory.push({ t: now, y: fanValue });
+
+        if (tempHistory.length > maxDataPoints) tempHistory.shift();
+        if (fanHistory.length > maxDataPoints) fanHistory.shift();
+
+        tempChart.data.labels = tempHistory.map(p => p.t);
+        tempChart.data.datasets[0].data = tempHistory.map(p => p.y);
+        fanChart.data.labels = fanHistory.map(p => p.t);
+        fanChart.data.datasets[0].data = fanHistory.map(p => p.y);
+
+        tempChart.update();
+        fanChart.update();
+
+      } catch (err) {
+        console.error("Sensor update failed:", err);
+      }
+    }
+
+    setInterval(updateSensors, 5000);
+    window.onload = updateSensors;
+
+    function confirmRestart() {
+      if (confirm("Restart the fan control container?")) {
+        fetch("/restart-container", { method: "POST" });
+        alert("Container restart requested...");
+      }
+    }
+
+    function confirmShutdown() {
+      if (confirm("Shutdown the fan control container?")) {
+        fetch("/shutdown-container", { method: "POST" });
+        alert("Shutdown requested...");
+      }
+    }
+
+    const tempCtx = document.getElementById('tempChart').getContext('2d');
+    const fanCtx = document.getElementById('fanChart').getContext('2d');
+
+    const tempChart = new Chart(tempCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Temperature (°C)',
+          data: [],
+          borderColor: 'orange',
+          fill: false
+        }]
+      },
+      options: { scales: { y: { beginAtZero: false } } }
+    });
+
+    const fanChart = new Chart(fanCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Fan RPM',
+          data: [],
+          borderColor: 'blue',
+          fill: false
+        }]
+      },
+      options: { scales: { y: { beginAtZero: true } } }
+    });
+  </script>
+</body>
+</html>

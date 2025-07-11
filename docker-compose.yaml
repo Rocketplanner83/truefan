@@ -1,0 +1,17 @@
+services:
+  truefan:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: truefan
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /sys:/sys
+      - /dev:/dev
+      - /etc/sensors3.conf:/etc/sensors3.conf:ro
+    working_dir: /app
+    ports:
+      - "5002:5002"
+    environment:
+      - TZ=America/Chicago

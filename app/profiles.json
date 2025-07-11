@@ -1,0 +1,4 @@
+{
+  "quiet": { "pwm": 70 },
+  "cooling": { "pwm": 255 }
+}
