@@ -1,4 +1,4 @@
-# 🌀 truefan
+# 🖥️🌬 truefan
 
 
 A lightweight Flask-based fan controller dashboard for Linux servers. Displays temperature, fan RPM, and lets you switch fan profiles with optional automatic or manual PWM control.
