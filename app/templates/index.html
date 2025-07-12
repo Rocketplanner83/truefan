@@ -4,7 +4,7 @@
   <title>TrueFan Dashboard</title>
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="180">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -43,22 +43,36 @@
     .danger { background-color: #dc3545; }
     .danger:hover { background-color: #b02a37; }
     .section { margin-bottom: 2rem; }
-    .slider {
-      width: 200px;
-    }
+    .slider { width: 200px; }
     canvas { max-width: 100%; margin-top: 1rem; }
     .hidden { display: none; }
+    .alert {
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .dark-mode {
+      background-color: #121212;
+      color: #f0f0f0;
+    }
+    .dark-mode .alert {
+      background-color: #3a1e1e;
+      color: #ffcccc;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>TrueFan Dashboard</h1>
+    <h1>TrueFan Dashboard <button onclick="toggleDarkMode()" style="float: right;">🌓</button></h1>
 
     <div class="section">
       <h2>Status</h2>
-      <p><strong>Active Profile:</strong> {{ profile }}</p>
-      <p><strong>Uptime:</strong> {{ uptime }}</p>
-      <p><strong>CPU Load:</strong> {{ load['1min'] }}, {{ load['5min'] }}, {{ load['15min'] }}</p>
+      <p><strong>Active Profile:</strong> <span id="profile">Loading...</span></p>
+      <p><strong>Uptime:</strong> <span id="uptime">Loading...</span></p>
+      <p><strong>CPU Load:</strong> <span id="cpuLoad">Loading...</span></p>
     </div>
 
     <div class="section">
@@ -73,6 +87,7 @@
     <div class="section">
       <h2>PWM Manual Control</h2>
       <input type="range" min="0" max="255" value="128" class="slider" id="pwmSlider">
+      <span id="pwmValue">128</span>
       <button onclick="applyPWM()">Apply PWM</button>
     </div>
 
@@ -100,16 +115,28 @@
     </div>
 
     <div class="section">
-      <div id="alertBox" class="hidden" style="color:red;"></div>
+      <div id="alertBox" class="hidden"></div>
     </div>
   </div>
 
   <script>
     let tempHistory = [], fanHistory = [], maxDataPoints = 20;
-    const alertBox = document.getElementById("alertBox");
     let tempChart, fanChart;
 
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark-mode");
+      localStorage.setItem("theme", document.body.classList.contains("dark-mode") ? "dark" : "light");
+    }
+
+    function applyStoredTheme() {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark") document.body.classList.add("dark-mode");
+    }
+
+    applyStoredTheme();
+
     window.onload = () => {
+      const alertBox = document.getElementById("alertBox");
       const tempCtx = document.getElementById('tempChart').getContext('2d');
       const fanCtx = document.getElementById('fanChart').getContext('2d');
 
@@ -125,22 +152,28 @@
         options: { scales: { y: { beginAtZero: true } } }
       });
 
+      document.getElementById('pwmSlider').addEventListener('input', function() {
+        document.getElementById('pwmValue').textContent = this.value;
+      });
+
       setInterval(updateSensors, 5000);
       updateSensors();
     };
 
     async function updateSensors() {
+      const alertBox = document.getElementById("alertBox");
       try {
         const res = await fetch('/sensors');
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         const data = await res.json();
 
         const fanList = document.getElementById('fanList');
         fanList.innerHTML = '';
         let fanRPMs = [];
 
-        for (const [fan, rpmText] of Object.entries(data.fans)) {
+        for (const [fan, rpmText] of Object.entries(data.fans || {})) {
           const rpm = parseInt(rpmText.replace(/\D/g, ''), 10) || 0;
-          fanRPMs.push(rpm);
+          if (!isNaN(rpm)) fanRPMs.push(rpm);
           const li = document.createElement('li');
           li.textContent = `${fan}: ${rpmText}`;
           fanList.appendChild(li);
@@ -148,8 +181,11 @@
 
         const tempList = document.getElementById('tempList');
         tempList.innerHTML = '';
-        for (const [label, temp] of Object.entries(data.temps)) {
+        let temps = [];
+
+        for (const [label, temp] of Object.entries(data.temps || {})) {
           const val = parseFloat(temp.replace("°C", ""));
+          if (!isNaN(val)) temps.push(val);
           if (val >= 80) showAlert(`${label} temperature high: ${val}°C`);
           const li = document.createElement('li');
           li.textContent = `${label}: ${temp}`;
@@ -157,8 +193,11 @@
         }
 
         const now = new Date().toLocaleTimeString();
-        tempHistory.push({ t: now, y: parseFloat(Object.values(data.temps)[0].replace("°C", "")) });
-        fanHistory.push({ t: now, y: Math.max(...fanRPMs) });
+        const avgTemp = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+        const maxFanRPM = fanRPMs.length ? Math.max(...fanRPMs) : 0;
+
+        tempHistory.push({ t: now, y: avgTemp });
+        fanHistory.push({ t: now, y: maxFanRPM });
 
         if (tempHistory.length > maxDataPoints) tempHistory.shift();
         if (fanHistory.length > maxDataPoints) fanHistory.shift();
@@ -170,10 +209,53 @@
         tempChart.update();
         fanChart.update();
       } catch (err) {
-        showAlert("Sensor update failed");
+        console.error("Sensor update failed:", err);
+        showAlert("Sensor update failed: " + err.message);
       }
     }
 
     function showAlert(msg) {
+      const alertBox = document.getElementById("alertBox");
       alertBox.textContent = msg;
-      a
+      alertBox.className = 'alert';
+      alertBox.style.display = 'block';
+      setTimeout(() => {
+        alertBox.style.display = 'none';
+      }, 5000);
+    }
+
+    function applyPWM() {
+      const val = document.getElementById("pwmSlider").value;
+      fetch(`/pwm/${val}`, { method: "POST" });
+      showAlert(`PWM set to ${val}`);
+    }
+
+    function exportCSV() {
+      const rows = ["Time,Temperature,FanRPM"];
+      for (let i = 0; i < tempHistory.length; i++) {
+        rows.push(`${tempHistory[i].t},${tempHistory[i].y},${fanHistory[i]?.y ?? ''}`);
+      }
+      const blob = new Blob([rows.join("\n")], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "truefan_data.csv";
+      a.click();
+    }
+
+    function confirmRestart() {
+      if (confirm("Restart the fan control container?")) {
+        fetch("/restart-container", { method: "POST" });
+        showAlert("Container restart requested...");
+      }
+    }
+
+    function confirmShutdown() {
+      if (confirm("Shutdown the fan control container?")) {
+        fetch("/shutdown-container", { method: "POST" });
+        showAlert("Shutdown requested...");
+      }
+    }
+  </script>
+</body>
+</html>
