@@ -1,5 +1,7 @@
 # 🌀 truefan
 
+[![Deploy with Dockge](https://dockge.com/deploy-button.svg)](https://dockge.com/deploy?repo=https://github.com/Rocketplanner83/truefan.git)
+
 A lightweight Flask-based fan controller dashboard for Linux servers. Displays temperature, fan RPM, and lets you switch fan profiles with optional automatic or manual PWM control.
 
 ## 🔧 Features
@@ -18,12 +20,11 @@ A lightweight Flask-based fan controller dashboard for Linux servers. Displays t
 ### Prerequisites
 
 - Linux system with `lm-sensors` installed and configured
-- Python 3.7+
-- Docker + Docker Compose
+- Docker + Docker Compose (or use Dockge/Portainer)
 
 ### Clone and Run
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/truefan.git
+git clone https://github.com/rocketplanner83/truefan.git
 cd truefan
-docker-compose up --build -d
+docker compose up -d
