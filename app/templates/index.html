@@ -1,25 +1,22 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Fan Control</title>
+  <title>TrueFan Dashboard</title>
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="180">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #f4f4f4;
       margin: 0;
       padding: 0;
-      background-color: #ffffff;
+      background-color: #fff;
     }
-
     .container {
       margin: 0 auto;
       max-width: 1200px;
       padding: 2rem;
     }
-
     h1, h2 {
       color: #333;
     }
@@ -45,70 +42,27 @@
     button:hover { background-color: #1e7e34; }
     .danger { background-color: #dc3545; }
     .danger:hover { background-color: #b02a37; }
-    p, li { font-size: 1.1rem; }
-    .section { margin-bottom: 1.5rem; }
+    .section { margin-bottom: 2rem; }
+    .slider {
+      width: 200px;
+    }
     canvas { max-width: 100%; margin-top: 1rem; }
-
-    .fan-icon {
-      width: 24px;
-      height: 24px;
-      opacity: 0.7;
-    }
-    .spin {
-      animation-name: spin;
-      animation-timing-function: linear;
-      animation-iteration-count: infinite;
-    }
-    @keyframes spin {
-      100% { transform: rotate(360deg); }
-    }
-
-    @media (prefers-color-scheme: dark) {
-      body:not(.light-mode) {
-        background-color: #121212;
-        color: #f0f0f0;
-      }
-
-      body:not(.light-mode) .section {
-        background-color: #1e1e1e;
-        border-radius: 8px;
-        padding: 1rem;
-        box-shadow: 0 0 8px rgba(0,0,0,0.5);
-      }
-
-      body:not(.light-mode) canvas {
-        background-color: #222;
-      }
-    }
-
-    body.dark-mode {
-      background-color: #121212 !important;
-      color: #f0f0f0 !important;
-    }
-
-    body.dark-mode .section {
-      background-color: #1e1e1e;
-      box-shadow: 0 0 8px rgba(0,0,0,0.5);
-    }
-
-    body.dark-mode canvas {
-      background-color: #222;
-    }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1 style="display: inline-block;">Fan Controller</h1>
-    <button onclick="toggleDarkMode()" style="float: right;">🌓</button>
+    <h1>TrueFan Dashboard</h1>
 
     <div class="section">
+      <h2>Status</h2>
       <p><strong>Active Profile:</strong> {{ profile }}</p>
       <p><strong>Uptime:</strong> {{ uptime }}</p>
       <p><strong>CPU Load:</strong> {{ load['1min'] }}, {{ load['5min'] }}, {{ load['15min'] }}</p>
     </div>
 
     <div class="section">
-      <h2>Set Profile</h2>
+      <h2>Fan Profiles</h2>
       <ul>
         <li><a href="/set/silent" class="button">Silent</a></li>
         <li><a href="/set/cool" class="button">Cool</a></li>
@@ -117,10 +71,9 @@
     </div>
 
     <div class="section">
-      <h2>Manual Control</h2>
-      <form action="/control">
-        <button type="submit">Apply Control Now</button>
-      </form>
+      <h2>PWM Manual Control</h2>
+      <input type="range" min="0" max="255" value="128" class="slider" id="pwmSlider">
+      <button onclick="applyPWM()">Apply PWM</button>
     </div>
 
     <div class="section">
@@ -136,83 +89,76 @@
     </div>
 
     <div class="section">
-      <h2>Fan Controller Container</h2>
+      <h2>Export Data</h2>
+      <button onclick="exportCSV()">Download CSV</button>
+    </div>
+
+    <div class="section">
+      <h2>Container Management</h2>
       <button class="danger" onclick="confirmRestart()">Restart Container</button>
       <button class="danger" onclick="confirmShutdown()">Shutdown Container</button>
+    </div>
+
+    <div class="section">
+      <div id="alertBox" class="hidden" style="color:red;"></div>
     </div>
   </div>
 
   <script>
-    function applyStoredTheme() {
-      const saved = localStorage.getItem("theme");
-      if (saved === "dark") {
-        document.body.classList.add("dark-mode");
-      } else if (saved === "light") {
-        document.body.classList.remove("dark-mode");
-      }
-    }
+    let tempHistory = [], fanHistory = [], maxDataPoints = 20;
+    const alertBox = document.getElementById("alertBox");
+    let tempChart, fanChart;
 
-    function toggleDarkMode() {
-      if (document.body.classList.contains("dark-mode")) {
-        document.body.classList.remove("dark-mode");
-        localStorage.setItem("theme", "light");
-      } else {
-        document.body.classList.add("dark-mode");
-        localStorage.setItem("theme", "dark");
-      }
-    }
+    window.onload = () => {
+      const tempCtx = document.getElementById('tempChart').getContext('2d');
+      const fanCtx = document.getElementById('fanChart').getContext('2d');
 
-    applyStoredTheme();
+      tempChart = new Chart(tempCtx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Temperature (°C)', data: [], borderColor: 'orange', fill: false }] },
+        options: { scales: { y: { beginAtZero: false } } }
+      });
 
-    let tempHistory = [];
-    let fanHistory = [];
-    const maxDataPoints = 20;
+      fanChart = new Chart(fanCtx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Fan RPM', data: [], borderColor: 'blue', fill: false }] },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
+
+      setInterval(updateSensors, 5000);
+      updateSensors();
+    };
 
     async function updateSensors() {
       try {
-        const response = await fetch('/sensors');
-        const data = await response.json();
+        const res = await fetch('/sensors');
+        const data = await res.json();
 
-        const fanListElem = document.getElementById('fanList');
-        fanListElem.innerHTML = '';
+        const fanList = document.getElementById('fanList');
+        fanList.innerHTML = '';
+        let fanRPMs = [];
 
         for (const [fan, rpmText] of Object.entries(data.fans)) {
           const rpm = parseInt(rpmText.replace(/\D/g, ''), 10) || 0;
-
+          fanRPMs.push(rpm);
           const li = document.createElement('li');
-          const img = document.createElement('img');
-          img.src = '/static/icons/cooling-fan.svg';
-          img.alt = 'Fan Icon';
-          img.className = 'fan-icon';
-
-          if (rpm > 0) {
-            const spinDuration = Math.max(0.5, 5000 / rpm).toFixed(2);
-            img.classList.add('spin');
-            img.style.animationDuration = `${spinDuration}s`;
-          }
-
-          const label = document.createElement('span');
-          label.innerHTML = `<strong>${fan}:</strong> ${rpmText}`;
-
-          li.appendChild(img);
-          li.appendChild(label);
-          fanListElem.appendChild(li);
+          li.textContent = `${fan}: ${rpmText}`;
+          fanList.appendChild(li);
         }
 
-        const tempListElem = document.getElementById('tempList');
-        tempListElem.innerHTML = '';
+        const tempList = document.getElementById('tempList');
+        tempList.innerHTML = '';
         for (const [label, temp] of Object.entries(data.temps)) {
+          const val = parseFloat(temp.replace("°C", ""));
+          if (val >= 80) showAlert(`${label} temperature high: ${val}°C`);
           const li = document.createElement('li');
-          li.innerHTML = `<strong>${label}:</strong> ${temp}`;
-          tempListElem.appendChild(li);
+          li.textContent = `${label}: ${temp}`;
+          tempList.appendChild(li);
         }
-
-        const tempValue = parseFloat(Object.values(data.temps)[0]?.replace("°C", "") || 0);
-        const fanValue = parseFloat(Object.values(data.fans)[0]?.replace(" RPM", "") || 0);
 
         const now = new Date().toLocaleTimeString();
-        tempHistory.push({ t: now, y: tempValue });
-        fanHistory.push({ t: now, y: fanValue });
+        tempHistory.push({ t: now, y: parseFloat(Object.values(data.temps)[0].replace("°C", "")) });
+        fanHistory.push({ t: now, y: Math.max(...fanRPMs) });
 
         if (tempHistory.length > maxDataPoints) tempHistory.shift();
         if (fanHistory.length > maxDataPoints) fanHistory.shift();
@@ -221,62 +167,13 @@
         tempChart.data.datasets[0].data = tempHistory.map(p => p.y);
         fanChart.data.labels = fanHistory.map(p => p.t);
         fanChart.data.datasets[0].data = fanHistory.map(p => p.y);
-
         tempChart.update();
         fanChart.update();
-
       } catch (err) {
-        console.error("Sensor update failed:", err);
+        showAlert("Sensor update failed");
       }
     }
 
-    setInterval(updateSensors, 5000);
-    window.onload = updateSensors;
-
-    function confirmRestart() {
-      if (confirm("Restart the fan control container?")) {
-        fetch("/restart-container", { method: "POST" });
-        alert("Container restart requested...");
-      }
-    }
-
-    function confirmShutdown() {
-      if (confirm("Shutdown the fan control container?")) {
-        fetch("/shutdown-container", { method: "POST" });
-        alert("Shutdown requested...");
-      }
-    }
-
-    const tempCtx = document.getElementById('tempChart').getContext('2d');
-    const fanCtx = document.getElementById('fanChart').getContext('2d');
-
-    const tempChart = new Chart(tempCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Temperature (°C)',
-          data: [],
-          borderColor: 'orange',
-          fill: false
-        }]
-      },
-      options: { scales: { y: { beginAtZero: false } } }
-    });
-
-    const fanChart = new Chart(fanCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Fan RPM',
-          data: [],
-          borderColor: 'blue',
-          fill: false
-        }]
-      },
-      options: { scales: { y: { beginAtZero: true } } }
-    });
-  </script>
-</body>
-</html>
+    function showAlert(msg) {
+      alertBox.textContent = msg;
+      a
