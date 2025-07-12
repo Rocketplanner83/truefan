@@ -1,7 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, jsonify, render_template
 import subprocess
-import re
 import os
+import re
 
 app = Flask(__name__)
 
@@ -13,16 +13,13 @@ def get_sensors_data():
     output = subprocess.getoutput("sensors")
     fans = {}
     temps = {}
-
     for line in output.splitlines():
         fan_match = re.match(r"(fan\d+):\s+(\d+)\s+RPM", line)
         if fan_match:
             fans[fan_match[1]] = f"{fan_match[2]} RPM"
-
         temp_match = re.match(r"([\w\-]+):\s+\+?([0-9.]+)°?C", line)
         if temp_match:
             temps[temp_match[1]] = f"{temp_match[2]}°C"
-
     return fans, temps
 
 def get_uptime():
@@ -46,27 +43,34 @@ def index():
     fans, temps = get_sensors_data()
     uptime = get_uptime()
     load = get_cpu_load()
-    return render_template('index.html', profile=profile, fans=fans, temps=temps, uptime=uptime, load=load)
-
-@app.route('/set/<name>')
-def set_profile(name):
-    subprocess.call(["python3", "fan.py", "set-profile", name])
-    return redirect(url_for('index'))
-
-@app.route('/control')
-def control():
-    subprocess.call(["python3", "fan.py", "control"])
-    return redirect(url_for('index'))
+    return render_template(
+        'index.html',
+        profile=profile,
+        fans=fans,
+        temps=temps,
+        uptime=uptime,
+        load=load
+    )
 
 @app.route('/sensors')
 def sensors():
     fans, temps = get_sensors_data()
     return jsonify({'fans': fans, 'temps': temps})
 
-@app.route('/restart', methods=["POST"])
-def restart():
-    subprocess.call(["reboot"])
-    return "Restarting...", 200
+@app.route('/pwm/<value>', methods=['POST'])
+def set_pwm(value):
+    subprocess.Popen(['python3', 'fan.py', 'set', value])
+    return jsonify({'status': 'ok'})
+
+@app.route('/restart-container', methods=['POST'])
+def restart_container():
+    subprocess.Popen(['reboot'])
+    return jsonify({'status': 'restarting'})
+
+@app.route('/shutdown-container', methods=['POST'])
+def shutdown_container():
+    subprocess.Popen(['shutdown', '-h', 'now'])
+    return jsonify({'status': 'shutting down'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002)
