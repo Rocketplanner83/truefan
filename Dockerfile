@@ -12,7 +12,7 @@ RUN apt-get update && \
     && apt-get clean
 
 # Install Python packages
-RUN pip3 install flask psutil
+RUN pip3 install flask psutil gunicorn
 
 # Copy app code
 COPY app /app
@@ -23,3 +23,4 @@ RUN chmod +x entrypoint.sh
 
 # Set the container entrypoint
 ENTRYPOINT ["./entrypoint.sh"]
+
