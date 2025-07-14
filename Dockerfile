@@ -14,13 +14,13 @@ RUN apt-get update && \
 # Install Python packages
 RUN pip3 install flask psutil gunicorn
 
-# Copy app code
+# Copy app code and entrypoint
 COPY app /app
-WORKDIR /app
+COPY entrypoint.sh /app/entrypoint.sh
 
-# Make entrypoint executable
-RUN chmod +x entrypoint.sh
+# Set working dir and permissions
+WORKDIR /app
+RUN chmod +x /app/entrypoint.sh
 
 # Set the container entrypoint
 ENTRYPOINT ["./entrypoint.sh"]
-
