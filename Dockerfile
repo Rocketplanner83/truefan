@@ -2,11 +2,17 @@ FROM debian:bullseye-slim
 
 # Install dependencies
 RUN apt-get update && \
-    apt-get install -y lm-sensors fancontrol smartmontools python3 python3-pip procps && \
-    apt-get clean
+    apt-get install -y \
+        lm-sensors \
+        fancontrol \
+        smartmontools \
+        python3 \
+        python3-pip \
+        procps \
+    && apt-get clean
 
-# Install Flask
-RUN pip3 install flask
+# Install Python packages
+RUN pip3 install flask psutil
 
 # Copy app code
 COPY app /app
@@ -17,5 +23,3 @@ RUN chmod +x entrypoint.sh
 
 # Set the container entrypoint
 ENTRYPOINT ["./entrypoint.sh"]
-
-
