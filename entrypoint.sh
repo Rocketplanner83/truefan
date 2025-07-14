@@ -3,7 +3,6 @@
 echo "[truefan] Starting..."
 echo "[truefan] Checking for sensors..."
 
-# Wait for /sys/class/hwmon to exist
 for i in {1..5}; do
   if [ -d /sys/class/hwmon ]; then
     echo "[truefan] hwmon devices found."
@@ -13,10 +12,9 @@ for i in {1..5}; do
   sleep 1
 done
 
-# Optionally check that at least one sensor shows data
 if ! sensors | grep -q .; then
   echo "[truefan] WARNING: No sensor data detected."
 fi
 
-echo "[truefan] Launching app..."
-exec python3 server.py
+echo "[truefan] Launching with gunicorn..."
+exec gunicorn -w 2 -b 0.0.0.0:5002 server:app
