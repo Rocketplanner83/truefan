@@ -10,7 +10,7 @@ It provides:
     •    Export of sensor data to CSV
     •    Container management actions (restart, shutdown)
 
-Features
+✨ Features
     •    Web Dashboard: CPU load, uptime, temperatures, and fan speeds
     •    Profiles: Switch between Silent, Cool, and Aggressive, with active profile highlighting
     •    Manual PWM: Apply PWM via slider
@@ -23,52 +23,60 @@ Features
     •    /restart-container → reboot container
     •    /shutdown-container → shutdown container
 
-Installation
+📸 Dashboard Preview
+    •    Status: uptime, load averages, active profile
+    •    Fan Profiles: one-click switching with highlighting
+    •    PWM Control: manual slider (0–255)
+    •    Graphs: live fan RPMs & temperatures with Chart.js
 
-Clone the repository:
+Access at:
+
+http://<host-ip>:5002
+
+🐳 Docker Usage
+
+Run from Docker Hub
+
+docker run -d \
+  --name truefan \
+  --privileged \
+  -p 5002:5002 \
+  -v /sys:/sys \
+  -v /dev:/dev \
+  -v /etc/sensors3.conf:/etc/sensors3.conf:ro \
+  rocketplanner83/truefan:latest
+
+Build from Source
 
 git clone https://github.com/Rocketplanner83/truefan.git
 cd truefan
-
-Build the Docker image:
-
 docker build -t rocketplanner83/truefan:latest .
 
-Or use the prebuilt image:
-
-docker pull rocketplanner83/truefan:latest
-
-Usage
-
-Run with Docker Compose:
+Docker Compose
 
 docker compose up -d
 
 Access the dashboard:
+    •    Local: http://localhost:5002
+    •    LAN: http://192.168.x.x:5002
 
-http://localhost:5002
-
-Or via LAN:
-
-http://192.168.x.x:5002
-
-Development
+🔧 Development
 
 Rebuild after changes:
 
 docker compose build --no-cache truefan
 docker compose up -d
 
-Logs:
+View logs:
 
 docker logs -f truefan
 
-Roadmap
+🚀 Roadmap
     •    Custom profile editor in the UI
     •    Export/import profile configurations
     •    Improved mobile view
     •    Integration with Prometheus/Grafana
 
-License
+📜 License
 
 MIT License. See LICENSE for details.
