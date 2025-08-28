@@ -56,6 +56,8 @@ docker run -d \
   -v /dev:/dev \
   -v /etc/sensors3.conf:/etc/sensors3.conf:ro \
   rocketplanner83/truefan:latest
+```
+
 Build from source
 git clone https://github.com/Rocketplanner83/truefan.git
 cd truefan
@@ -79,6 +81,3 @@ Developed & tested on Linux with ZFS-based homelab
 📜 License
 MIT
 
----
-
-👉 Want me to generate a **shorter “release highlights” section** for the GitHub **Releases page**, separate from the README, so you can paste that directly into the v0.2.0 release?
