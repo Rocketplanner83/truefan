@@ -62,6 +62,11 @@
       background-color: #3a1e1e;
       color: #ffcccc;
     }
+    .active-profile {
+      background-color: #28a745 !important;
+      color: white !important;
+      border: 2px solid #1e7e34 !important;
+    }
   </style>
 </head>
 <body>
@@ -78,9 +83,9 @@
     <div class="section">
       <h2>Fan Profiles</h2>
       <ul>
-        <li><a href="/set/silent" class="button">Silent</a></li>
-        <li><a href="/set/cool" class="button">Cool</a></li>
-        <li><a href="/set/aggressive" class="button">Aggressive</a></li>
+        <li><button id="btn-silent" class="button" onclick="setProfile('silent')">Silent</button></li>
+        <li><button id="btn-cool" class="button" onclick="setProfile('cool')">Cool</button></li>
+        <li><button id="btn-aggressive" class="button" onclick="setProfile('aggressive')">Aggressive</button></li>
       </ul>
     </div>
 
@@ -132,11 +137,29 @@
       const saved = localStorage.getItem("theme");
       if (saved === "dark") document.body.classList.add("dark-mode");
     }
-
     applyStoredTheme();
 
+    function highlightProfile(profile) {
+      ["silent", "cool", "aggressive"].forEach(p => {
+        const btn = document.getElementById(`btn-${p}`);
+        if (btn) btn.classList.remove("active-profile");
+      });
+      const activeBtn = document.getElementById(`btn-${profile}`);
+      if (activeBtn) activeBtn.classList.add("active-profile");
+    }
+
+    function setProfile(profile) {
+      fetch(`/set/${profile}`, { method: "POST" })
+        .then(r => r.json())
+        .then(d => {
+          document.getElementById("profile").textContent = d.profile;
+          highlightProfile(d.profile.trim());
+          showAlert(`Profile set to ${d.profile}`);
+        })
+        .catch(err => showAlert("Error setting profile: " + err.message));
+    }
+
     window.onload = () => {
-      const alertBox = document.getElementById("alertBox");
       const tempCtx = document.getElementById('tempChart').getContext('2d');
       const fanCtx = document.getElementById('fanChart').getContext('2d');
 
@@ -158,10 +181,11 @@
 
       setInterval(updateSensors, 5000);
       updateSensors();
+      setInterval(updateStatus, 10000);
+      updateStatus();
     };
 
     async function updateSensors() {
-      const alertBox = document.getElementById("alertBox");
       try {
         const res = await fetch('/sensors');
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -209,7 +233,6 @@
         tempChart.update();
         fanChart.update();
       } catch (err) {
-        console.error("Sensor update failed:", err);
         showAlert("Sensor update failed: " + err.message);
       }
     }
@@ -219,9 +242,7 @@
       alertBox.textContent = msg;
       alertBox.className = 'alert';
       alertBox.style.display = 'block';
-      setTimeout(() => {
-        alertBox.style.display = 'none';
-      }, 5000);
+      setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
     }
 
     function applyPWM() {
@@ -255,6 +276,21 @@
         fetch("/shutdown-container", { method: "POST" });
         showAlert("Shutdown requested...");
       }
+    }
+
+    function updateStatus() {
+      fetch('/status')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('profile').textContent = data.profile;
+          document.getElementById('uptime').textContent = data.uptime;
+          document.getElementById('cpuLoad').textContent =
+            `${data.load['1min']} / ${data.load['5min']} / ${data.load['15min']}`;
+          highlightProfile(data.profile.trim());
+        })
+        .catch(err => {
+          showAlert("Failed to fetch status: " + err.message);
+        });
     }
   </script>
 </body>
