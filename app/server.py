@@ -1,18 +1,27 @@
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, send_from_directory
 import subprocess
 import os
 import re
 
-app = Flask(__name__)
+# Tell Flask where templates and static live
+app = Flask(__name__, static_folder="static", template_folder="templates")
+
 
 def get_profile():
     raw = subprocess.getoutput("python3 fan.py get-profile")
-    return raw.replace("Active profile:", "").strip()
+    # Clean up whitespace and duplicate words
+    cleaned = raw.replace("Active profile:", "").strip()
+    parts = cleaned.split()
+    if len(parts) >= 2 and parts[0] == parts[1]:
+        return parts[0].lower()
+    return cleaned.lower()
+
+
+
 
 def get_sensors_data():
     output = subprocess.getoutput("sensors")
-    fans = {}
-    temps = {}
+    fans, temps = {}, {}
     for line in output.splitlines():
         fan_match = re.match(r"(fan\d+):\s+(\d+)\s+RPM", line)
         if fan_match:
@@ -22,12 +31,14 @@ def get_sensors_data():
             temps[temp_match[1]] = f"{temp_match[2]}°C"
     return fans, temps
 
+
 def get_uptime():
     with open('/proc/uptime', 'r') as f:
         uptime_seconds = float(f.readline().split()[0])
     hours = int(uptime_seconds // 3600)
     minutes = int((uptime_seconds % 3600) // 60)
     return f"{hours}h {minutes}m"
+
 
 def get_cpu_load():
     load1, load5, load15 = os.getloadavg()
@@ -37,40 +48,53 @@ def get_cpu_load():
         '15min': round(load15, 2),
     }
 
+
+# --- Routes ---
+
 @app.route('/')
 def index():
-    profile = get_profile()
-    fans, temps = get_sensors_data()
-    uptime = get_uptime()
-    load = get_cpu_load()
-    return render_template(
-        'index.html',
-        profile=profile,
-        fans=fans,
-        temps=temps,
-        uptime=uptime,
-        load=load
-    )
+    # Serve the dashboard from /app/templates/index.html
+    return send_from_directory(app.template_folder, 'index.html')
+
 
 @app.route('/sensors')
 def sensors():
     fans, temps = get_sensors_data()
     return jsonify({'fans': fans, 'temps': temps})
 
+
 @app.route('/pwm/<value>', methods=['POST'])
 def set_pwm(value):
     subprocess.Popen(['python3', 'fan.py', 'set', value])
     return jsonify({'status': 'ok'})
+
+
+@app.route('/set/<profile>', methods=['POST'])
+def set_profile(profile):
+    subprocess.Popen(['python3', 'fan.py', 'set-profile', profile])
+    return jsonify({'status': 'ok', 'profile': profile})
+
 
 @app.route('/restart-container', methods=['POST'])
 def restart_container():
     subprocess.Popen(['reboot'])
     return jsonify({'status': 'restarting'})
 
+
 @app.route('/shutdown-container', methods=['POST'])
 def shutdown_container():
     subprocess.Popen(['shutdown', '-h', 'now'])
     return jsonify({'status': 'shutting down'})
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002)
+
+@app.route('/status')
+def status():
+    return jsonify({
+        'profile': get_profile(),
+        'uptime': get_uptime(),
+        'load': get_cpu_load()
+    })
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5002)
