@@ -1,261 +1,134 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>TrueFan Dashboard</title>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="180">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #fff;
-    }
-    .container {
-      margin: 0 auto;
-      max-width: 1200px;
-      padding: 2rem;
-    }
-    h1, h2 {
-      color: #333;
-    }
-    ul { list-style: none; padding-left: 0; }
-    li { margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; }
-    .button {
-      display: inline-block;
-      padding: 0.5rem 1rem;
-      background-color: #007BFF;
-      color: white;
-      text-decoration: none;
-      border-radius: 4px;
-    }
-    .button:hover { background-color: #0056b3; }
-    button {
-      padding: 0.5rem 1rem;
-      background-color: #28a745;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover { background-color: #1e7e34; }
-    .danger { background-color: #dc3545; }
-    .danger:hover { background-color: #b02a37; }
-    .section { margin-bottom: 2rem; }
-    .slider { width: 200px; }
-    canvas { max-width: 100%; margin-top: 1rem; }
-    .hidden { display: none; }
-    .alert {
-      padding: 1rem;
-      margin: 1rem 0;
-      border-radius: 4px;
-      background-color: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
-    }
-    .dark-mode {
-      background-color: #121212;
-      color: #f0f0f0;
-    }
-    .dark-mode .alert {
-      background-color: #3a1e1e;
-      color: #ffcccc;
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrueFan Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div class="container">
-    <h1>TrueFan Dashboard <button onclick="toggleDarkMode()" style="float: right;">🌓</button></h1>
+  <main class="wrap">
+    <header class="card header">
+      <h1>TRUEFAN MONITOR</h1>
+      <span id="updated-at" class="muted">Loading...</span>
+    </header>
 
-    <div class="section">
-      <h2>Status</h2>
-      <p><strong>Active Profile:</strong> <span id="profile">Loading...</span></p>
-      <p><strong>Uptime:</strong> <span id="uptime">Loading...</span></p>
-      <p><strong>CPU Load:</strong> <span id="cpuLoad">Loading...</span></p>
-    </div>
+    <section id="smart-warning" class="warn hidden">
+      [ WARN ] SMART access unavailable - reduced monitoring mode
+    </section>
 
-    <div class="section">
-      <h2>Fan Profiles</h2>
-      <ul>
-        <li><a href="/set/silent" class="button">Silent</a></li>
-        <li><a href="/set/cool" class="button">Cool</a></li>
-        <li><a href="/set/aggressive" class="button">Aggressive</a></li>
-      </ul>
-    </div>
+    <section class="grid">
+      <article class="card">
+        <h2>System</h2>
+        <div class="row"><span>Mode</span><span id="mode">unknown</span></div>
+        <div class="row"><span>Agent</span><span id="agent">unknown</span></div>
+        <div class="row"><span>SMART</span><span id="smart">unknown</span></div>
+      </article>
 
-    <div class="section">
-      <h2>PWM Manual Control</h2>
-      <input type="range" min="0" max="255" value="128" class="slider" id="pwmSlider">
-      <span id="pwmValue">128</span>
-      <button onclick="applyPWM()">Apply PWM</button>
-    </div>
+      <article class="card">
+        <h2>Temperatures</h2>
+        <div class="row"><span>CPU</span><span id="temp-cpu">--</span></div>
+        <div class="row"><span>NVMe</span><span id="temp-nvme">--</span></div>
+        <div class="row"><span>HDD</span><span id="temp-hdd">--</span></div>
+      </article>
 
-    <div class="section">
-      <h2>Fan Speeds</h2>
-      <ul id="fanList"><li>Loading...</li></ul>
-      <canvas id="fanChart"></canvas>
-    </div>
-
-    <div class="section">
-      <h2>Temperatures</h2>
-      <ul id="tempList"><li>Loading...</li></ul>
-      <canvas id="tempChart"></canvas>
-    </div>
-
-    <div class="section">
-      <h2>Export Data</h2>
-      <button onclick="exportCSV()">Download CSV</button>
-    </div>
-
-    <div class="section">
-      <h2>Container Management</h2>
-      <button class="danger" onclick="confirmRestart()">Restart Container</button>
-      <button class="danger" onclick="confirmShutdown()">Shutdown Container</button>
-    </div>
-
-    <div class="section">
-      <div id="alertBox" class="hidden"></div>
-    </div>
-  </div>
+      <article class="card">
+        <h2>Fan Speeds</h2>
+        <div id="fan-speeds"></div>
+      </article>
+    </section>
+  </main>
 
   <script>
-    let tempHistory = [], fanHistory = [], maxDataPoints = 20;
-    let tempChart, fanChart;
-
-    function toggleDarkMode() {
-      document.body.classList.toggle("dark-mode");
-      localStorage.setItem("theme", document.body.classList.contains("dark-mode") ? "dark" : "light");
-    }
-
-    function applyStoredTheme() {
-      const saved = localStorage.getItem("theme");
-      if (saved === "dark") document.body.classList.add("dark-mode");
-    }
-
-    applyStoredTheme();
-
-    window.onload = () => {
-      const alertBox = document.getElementById("alertBox");
-      const tempCtx = document.getElementById('tempChart').getContext('2d');
-      const fanCtx = document.getElementById('fanChart').getContext('2d');
-
-      tempChart = new Chart(tempCtx, {
-        type: 'line',
-        data: { labels: [], datasets: [{ label: 'Temperature (°C)', data: [], borderColor: 'orange', fill: false }] },
-        options: { scales: { y: { beginAtZero: false } } }
-      });
-
-      fanChart = new Chart(fanCtx, {
-        type: 'line',
-        data: { labels: [], datasets: [{ label: 'Fan RPM', data: [], borderColor: 'blue', fill: false }] },
-        options: { scales: { y: { beginAtZero: true } } }
-      });
-
-      document.getElementById('pwmSlider').addEventListener('input', function() {
-        document.getElementById('pwmValue').textContent = this.value;
-      });
-
-      setInterval(updateSensors, 5000);
-      updateSensors();
+    const els = {
+      mode: document.getElementById("mode"),
+      agent: document.getElementById("agent"),
+      smart: document.getElementById("smart"),
+      cpu: document.getElementById("temp-cpu"),
+      nvme: document.getElementById("temp-nvme"),
+      hdd: document.getElementById("temp-hdd"),
+      fanSpeeds: document.getElementById("fan-speeds"),
+      warning: document.getElementById("smart-warning"),
+      updated: document.getElementById("updated-at"),
     };
 
-    async function updateSensors() {
-      const alertBox = document.getElementById("alertBox");
+    function setText(el, value) {
+      if (el) {
+        el.textContent = String(value);
+      }
+    }
+
+    function findTemp(sensors, name) {
+      if (!Array.isArray(sensors)) {
+        return "--";
+      }
+      const match = sensors.find((item) => item && item.name === name);
+      if (!match || match.value === undefined || match.value === null) {
+        return "--";
+      }
+      return `${match.value} C`;
+    }
+
+    function render(status) {
+      const safe = status && typeof status === "object" ? status : {};
+      const capabilities = safe.capabilities && typeof safe.capabilities === "object" ? safe.capabilities : {};
+      const sensors = Array.isArray(safe.sensors) ? safe.sensors : [];
+      const fan = safe.fan && typeof safe.fan === "object" ? safe.fan : {};
+      const smartAvailable = capabilities.smart_available !== false;
+
+      setText(els.mode, safe.mode || "monitoring-only");
+      setText(els.agent, safe.agent_available ? "online" : "offline");
+      setText(els.smart, smartAvailable ? "available" : "unavailable");
+      setText(els.cpu, findTemp(sensors, "cpu"));
+      setText(els.nvme, findTemp(sensors, "nvme"));
+      setText(els.hdd, findTemp(sensors, "hdd"));
+      setText(els.updated, new Date().toLocaleTimeString());
+
+      if (els.warning) {
+        els.warning.classList.toggle("hidden", smartAvailable);
+      }
+
+      if (els.fanSpeeds) {
+        els.fanSpeeds.innerHTML = "";
+        for (const [name, value] of Object.entries(fan)) {
+          const row = document.createElement("div");
+          row.className = "row";
+          if (Number(value) === 0) {
+            row.classList.add("muted");
+          }
+
+          const left = document.createElement("span");
+          left.textContent = `${name}:`;
+          const right = document.createElement("span");
+          right.textContent = `${value} RPM`;
+          row.appendChild(left);
+          row.appendChild(right);
+          els.fanSpeeds.appendChild(row);
+        }
+      }
+    }
+
+    async function pollStatus() {
       try {
-        const res = await fetch('/sensors');
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-        const data = await res.json();
-
-        const fanList = document.getElementById('fanList');
-        fanList.innerHTML = '';
-        let fanRPMs = [];
-
-        for (const [fan, rpmText] of Object.entries(data.fans || {})) {
-          const rpm = parseInt(rpmText.replace(/\D/g, ''), 10) || 0;
-          if (!isNaN(rpm)) fanRPMs.push(rpm);
-          const li = document.createElement('li');
-          li.textContent = `${fan}: ${rpmText}`;
-          fanList.appendChild(li);
+        const res = await fetch("/status", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
         }
-
-        const tempList = document.getElementById('tempList');
-        tempList.innerHTML = '';
-        let temps = [];
-
-        for (const [label, temp] of Object.entries(data.temps || {})) {
-          const val = parseFloat(temp.replace("°C", ""));
-          if (!isNaN(val)) temps.push(val);
-          if (val >= 80) showAlert(`${label} temperature high: ${val}°C`);
-          const li = document.createElement('li');
-          li.textContent = `${label}: ${temp}`;
-          tempList.appendChild(li);
-        }
-
-        const now = new Date().toLocaleTimeString();
-        const avgTemp = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
-        const maxFanRPM = fanRPMs.length ? Math.max(...fanRPMs) : 0;
-
-        tempHistory.push({ t: now, y: avgTemp });
-        fanHistory.push({ t: now, y: maxFanRPM });
-
-        if (tempHistory.length > maxDataPoints) tempHistory.shift();
-        if (fanHistory.length > maxDataPoints) fanHistory.shift();
-
-        tempChart.data.labels = tempHistory.map(p => p.t);
-        tempChart.data.datasets[0].data = tempHistory.map(p => p.y);
-        fanChart.data.labels = fanHistory.map(p => p.t);
-        fanChart.data.datasets[0].data = fanHistory.map(p => p.y);
-        tempChart.update();
-        fanChart.update();
-      } catch (err) {
-        console.error("Sensor update failed:", err);
-        showAlert("Sensor update failed: " + err.message);
+        const payload = await res.json();
+        render(payload);
+      } catch (_error) {
+        render({
+          mode: "monitoring-only",
+          agent_available: false,
+          capabilities: { smart_available: false },
+          sensors: [],
+          fan: {},
+        });
       }
     }
 
-    function showAlert(msg) {
-      const alertBox = document.getElementById("alertBox");
-      alertBox.textContent = msg;
-      alertBox.className = 'alert';
-      alertBox.style.display = 'block';
-      setTimeout(() => {
-        alertBox.style.display = 'none';
-      }, 5000);
-    }
-
-    function applyPWM() {
-      const val = document.getElementById("pwmSlider").value;
-      fetch(`/pwm/${val}`, { method: "POST" });
-      showAlert(`PWM set to ${val}`);
-    }
-
-    function exportCSV() {
-      const rows = ["Time,Temperature,FanRPM"];
-      for (let i = 0; i < tempHistory.length; i++) {
-        rows.push(`${tempHistory[i].t},${tempHistory[i].y},${fanHistory[i]?.y ?? ''}`);
-      }
-      const blob = new Blob([rows.join("\n")], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "truefan_data.csv";
-      a.click();
-    }
-
-    function confirmRestart() {
-      if (confirm("Restart the fan control container?")) {
-        fetch("/restart-container", { method: "POST" });
-        showAlert("Container restart requested...");
-      }
-    }
-
-    function confirmShutdown() {
-      if (confirm("Shutdown the fan control container?")) {
-        fetch("/shutdown-container", { method: "POST" });
-        showAlert("Shutdown requested...");
-      }
-    }
+    pollStatus();
+    window.setInterval(pollStatus, 5000);
   </script>
 </body>
 </html>

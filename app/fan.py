@@ -1,207 +1,233 @@
+import logging
 import os
+import sys
+import time
 import subprocess
-from datetime import datetime
+import json
+from typing import Dict, Tuple, List
 
-HWMON_PATH = "/sys/class/hwmon/hwmon4"
+from control_client import get_agent_health, set_pwm as agent_set_pwm
+from temperature_sources import get_temperature_sources
+
 PROFILE_FILE = "fan_profile.conf"
-LOG_FILE = "logs/fan.log"
-PWM_HEADERS = [1, 2, 3, 4]
+LOGGER = logging.getLogger(__name__)
 
 
-def read_temp_cpu():
-    try:
-        out = subprocess.check_output(["sensors"], encoding="utf-8")
-        for line in out.splitlines():
-            if "Package id 0" in line:
-                return int(float(line.split()[3].replace("+", "").replace("°C", "")))
-    except:
-        return 0
-
-
-def read_temp_nvme():
-    try:
-        out = subprocess.check_output(
-            ["smartctl", "-A", "/dev/nvme0"], encoding="utf-8"
-        )
-        for line in out.splitlines():
-            if "Temperature:" in line:
-                return int(line.split()[1])
-    except:
-        return 0
-
-
-def read_temp_hdd():
-    try:
-        out = subprocess.check_output(["smartctl", "-A", "/dev/sda"], encoding="utf-8")
-        for line in out.splitlines():
-            if "Temperature_Celsius" in line or "Temperature_Case" in line:
-                return int(line.split()[-1])
-            if "194 Temperature" in line:
-                return int(line.split()[-1])
-    except:
-        return 0
-
-
-def load_profile():
+def load_profile() -> str:
     if not os.path.exists(PROFILE_FILE):
         return "cool"
-    with open(PROFILE_FILE) as f:
-        for line in f:
-            if line.startswith("profile="):
-                return line.strip().split("=")[1]
+    try:
+        with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("profile="):
+                    return line.strip().split("=", 1)[1]
+    except OSError as e:
+        LOGGER.debug("Failed reading profile file %s: %s", PROFILE_FILE, e)
     return "cool"
 
 
-def determine_pwm(cpu_temp, profile):
+def set_profile(name: str) -> None:
+    with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+        f.write(f"profile={name}\n")
+    LOGGER.info("Profile set to: %s", name)
+
+
+# -------------------------
+# Temperature Handling
+# -------------------------
+
+def _temps_from_sources() -> Dict[str, float]:
+    sources = get_temperature_sources(include_hdd=True)
+    out = {"cpu": 0.0, "nvme": 0.0, "hdd": 0.0}
+
+    for item in sources:
+        name = str(item.get("name", "")).lower()
+        value = item.get("value")
+        try:
+            if name in out and value is not None:
+                out[name] = float(value)
+        except (TypeError, ValueError) as e:
+            LOGGER.debug("Invalid temperature value for %s: %s", name, e)
+
+    return out
+
+
+def read_all_temps() -> Tuple[float, float, float]:
+    temps = _temps_from_sources()
+    return temps["cpu"], temps["nvme"], temps["hdd"]
+
+
+def determine_pwm(cpu_temp: float, profile: str) -> int:
     if profile == "quiet":
         if cpu_temp >= 80:
             return 180
-        elif cpu_temp >= 65:
+        if cpu_temp >= 65:
             return 120
-        else:
-            return 70
-    elif profile == "cool":
+        return 70
+
+    if profile == "cool":
         if cpu_temp >= 70:
             return 255
-        elif cpu_temp >= 55:
+        if cpu_temp >= 55:
             return 180
-        else:
-            return 100
-    elif profile == "aggressive":
+        return 100
+
+    if profile == "aggressive":
         if cpu_temp >= 50:
             return 255
-        elif cpu_temp >= 40:
+        if cpu_temp >= 40:
             return 180
-        else:
-            return 130
+        return 130
+
     return 120
 
 
-def set_pwm(pwm):
-    for i in PWM_HEADERS:
-        try:
-            with open(f"{HWMON_PATH}/pwm{i}_enable", "w") as f:
-                f.write("1")
-            with open(f"{HWMON_PATH}/pwm{i}", "w") as f:
-                f.write(str(pwm))
-        except:
-            continue
-
-
-def log_status(cpu, nvme, hdd, pwm, profile):
-    os.makedirs("logs", exist_ok=True)
-    with open(LOG_FILE, "a") as log:
-        log.write(
-            f"{datetime.now()} - Profile: {profile} | CPU: {cpu}°C | NVMe: {nvme}°C | HDD: {hdd}°C → PWM: {pwm}\n"
-        )
-
-
-def set_profile(name):
-    with open(PROFILE_FILE, "w") as f:
-        f.write(f"profile={name}\n")
-    print(f"Profile set to: {name}")
-
-
-def get_profile():
-    print(f"Active profile: {load_profile()}")
-
-
-def control():
+def get_status() -> Dict[str, float]:
+    cpu, nvme, hdd = read_all_temps()
     profile = load_profile()
-    cpu_temp = read_temp_cpu()
-    nvme_temp = read_temp_nvme()
-    hdd_temp = read_temp_hdd()
-    pwm = determine_pwm(cpu_temp, profile)
-    set_pwm(pwm)
-    log_status(cpu_temp, nvme_temp, hdd_temp, pwm, profile)
-    print(f"Applied profile '{profile}' → PWM: {pwm}")
+    return {
+        "profile": profile,
+        "cpu": cpu,
+        "nvme": nvme,
+        "hdd": hdd,
+        "pwm": determine_pwm(cpu, profile),
+    }
 
 
-def status():
-    cpu = read_temp_cpu()
-    nvme = read_temp_nvme()
-    hdd = read_temp_hdd()
-    print(f"CPU Temp: {cpu}°C | NVMe Temp: {nvme}°C | HDD Temp: {hdd}°C")
+# -------------------------
+# Control Loop
+# -------------------------
+
+def control_loop(interval_seconds: int = 5, iterations: int = 1):
+    if iterations < 1:
+        raise ValueError("iterations must be >= 1")
+
+    latest = None
+    for i in range(iterations):
+        latest = get_status()
+        LOGGER.info("Control loop status (no direct hardware write): %s", latest)
+        if i < iterations - 1:
+            time.sleep(interval_seconds)
+
+    return latest
 
 
-def list_all_drives():
-    """Return a list of all drive device paths using smartctl --scan."""
+def set_pwm(pwm_value):
+    health = get_agent_health(force=False)
+    if not health.get("online"):
+        raise RuntimeError("Control agent unavailable; monitoring-only mode")
+
+    resp = agent_set_pwm(int(pwm_value))
+    if not resp.get("ok"):
+        raise RuntimeError(resp.get("error") or "Failed to set PWM via control agent")
+
+    return (resp.get("data") or {}).get("pwm", int(pwm_value))
+
+
+# -------------------------
+# Drive Temperature Scanning
+# -------------------------
+
+def list_all_drives() -> List[str]:
     try:
-        scan_out = subprocess.check_output(["smartctl", "--scan"], encoding="utf-8")
+        scan_out = subprocess.check_output(
+            ["smartctl", "--scan"],
+            encoding="utf-8"
+        )
         return [line.split()[0] for line in scan_out.splitlines() if line.strip()]
-    except Exception:
+    except Exception as e:
+        LOGGER.debug("Drive scan failed: %s", e)
         return []
 
 
-def get_drive_temperature(device):
-    """Return the temperature string for a given device, or 'N/A' if not found."""
-    if "nvme" in device:
-        try:
-            out = subprocess.check_output(["smartctl", "-a", device], encoding="utf-8")
-            for l in out.splitlines():
-                if "Temperature:" in l:
-                    # Extract temperature value after colon, remove units if present
-                    temp = l.split(":", 1)[1].strip()
-                    if not temp.endswith("C"):
-                        temp += " C"
-                    return temp
-            return "N/A"
-        except Exception:
-            return "N/A"
-    else:
-        try:
-            out = subprocess.check_output(["smartctl", "-A", device], encoding="utf-8")
-            for l in out.splitlines():
-                if any(
-                    x in l
-                    for x in [
-                        "Temperature_Celsius",
-                        "Temperature_Internal",
-                        "Temperature",
-                    ]
-                ):
-                    parts = l.split()
-                    # Try to get the last column as temperature (as in most smartctl outputs)
-                    if len(parts) >= 10:
-                        return parts[9] + " C"
-                    elif len(parts) >= 2:
-                        return parts[-1] + " C"
-            return "N/A"
-        except Exception:
-            return "N/A"
+def get_drive_temperature(device: str) -> str:
+    try:
+        out = subprocess.check_output(
+            ["smartctl", "-j", "-a", device],
+            encoding="utf-8"
+        )
+        data = json.loads(out)
+
+        # NVMe path
+        if "nvme_smart_health_information_log" in data:
+            temp = data["nvme_smart_health_information_log"].get("temperature")
+            if temp is not None:
+                return f"{temp} C"
+
+        # ATA path
+        if "temperature" in data:
+            temp = data["temperature"].get("current")
+            if temp is not None:
+                return f"{temp} C"
+
+    except Exception as e:
+        LOGGER.debug("Failed reading temperature for %s: %s", device, e)
+
+    return "N/A"
 
 
 def drive_temperatures():
-    print("Drive Temperatures:")
-    print("--------------------")
     drives = list_all_drives()
     if not drives:
-        print("No drives found or could not scan drives.")
+        LOGGER.info("No drives found or unable to scan.")
         return
+
     for device in drives:
         temp = get_drive_temperature(device)
-        print(f"{device}: {temp}")
+        LOGGER.info("%s: %s", device, temp)
+
+
+# -------------------------
+# CLI
+# -------------------------
+
+def print_usage() -> None:
+    LOGGER.error(
+        "Usage: fan.py "
+        "[status|control|set <pwm>|set-profile <name>|get-profile|drive-temps]"
+    )
+
+
+def main() -> None:
+    cmd = sys.argv[1] if len(sys.argv) > 1 else None
+    if not cmd:
+        print_usage()
+        sys.exit(1)
+
+    if cmd == "status":
+        LOGGER.info("Status: %s", get_status())
+        return
+
+    if cmd == "control":
+        control_loop(iterations=1)
+        return
+
+    if cmd == "set":
+        if len(sys.argv) != 3:
+            print_usage()
+            sys.exit(1)
+        try:
+            set_pwm(sys.argv[2])
+        except Exception as exc:
+            LOGGER.error("Failed to set PWM: %s", exc)
+            sys.exit(1)
+        return
+
+    if cmd == "set-profile" and len(sys.argv) == 3:
+        set_profile(sys.argv[2])
+        return
+
+    if cmd == "get-profile":
+        sys.stdout.write(f"{load_profile()}\n")
+        return
+
+    if cmd == "drive-temps":
+        drive_temperatures()
+        return
+
+    print_usage()
+    sys.exit(1)
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print(
-            "Usage: fan.py [status|control|set-profile <name>|get-profile|drive-temps]"
-        )
-        exit(1)
-
-    cmd = sys.argv[1]
-    if cmd == "status":
-        status()
-    elif cmd == "control":
-        control()
-    elif cmd == "set-profile" and len(sys.argv) == 3:
-        set_profile(sys.argv[2])
-    elif cmd == "get-profile":
-        get_profile()
-    elif cmd == "drive-temps":
-        drive_temperatures()
-    else:
-        print("Unknown command.")
+    main()

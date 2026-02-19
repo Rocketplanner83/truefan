@@ -1,47 +1,86 @@
-# 🖥️🌬 truefan
+TrueFan
 
+TrueFan is a lightweight web application and Dockerized service for monitoring and controlling system fans using lm-sensors and PWM.
 
-A lightweight Flask-based fan controller dashboard for Linux servers. Displays temperature, fan RPM, and lets you switch fan profiles with optional automatic or manual PWM control.
+It provides:
+    •    A simple dashboard with temperature and fan RPM charts
+    •    Auto-refreshing UI (live updates)
+    •    Profile management (Silent, Cool, Aggressive)
+    •    Manual PWM slider control
+    •    Export of sensor data to CSV
+    •    Container management actions (restart, shutdown)
 
-## 🔧 Features
+✨ Features
+    •    Web Dashboard: CPU load, uptime, temperatures, and fan speeds
+    •    Profiles: Switch between Silent, Cool, and Aggressive, with active profile highlighting
+    •    Manual PWM: Apply PWM via slider
+    •    Dark Mode: UI theme toggle
+    •    Backend Routes:
+    •    /sensors → JSON of temps/fans
+    •    /status → uptime, load, active profile
+    •    /pwm/<value> → set PWM directly
+    •    /set/<profile> → switch fan profile
+    •    /restart-container → reboot container
+    •    /shutdown-container → shutdown container
 
-- Real-time CPU temperature and fan RPM monitoring
-- Fan speed chart with Chart.js
-- Rotating SVG fan icons based on live RPM
-- Profile switching (silent, cool, aggressive)
-- Manual fan control trigger
-- Container restart/shutdown buttons
-- Auto and manual dark mode with persistence
-- Dockerized for easy deployment
+📸 Dashboard Preview
+    •    Status: uptime, load averages, active profile
+    •    Fan Profiles: one-click switching with highlighting
+    •    PWM Control: manual slider (0–255)
+    •    Graphs: live fan RPMs & temperatures with Chart.js
 
-## 🚀 Getting Started
+Access at:
 
-### Prerequisites
+http://<host-ip>:5002
 
-- Linux system with `lm-sensors` installed and configured
-- Docker + Docker Compose (or use Dockge/Portainer)
+🐳 Docker Usage
 
-### Clone and Run
+Run from Docker Hub
 
-```bash
-git clone https://github.com/rocketplanner83/truefan.git
+docker run -d \
+  --name truefan \
+  -p 5002:5002 \
+  -v /sys/class/hwmon:/sys/class/hwmon:ro \
+  -v /dev/sda:/dev/sda:ro \
+  -v /etc/sensors3.conf:/etc/sensors3.conf:ro \
+  rocketplanner83/truefan:latest
+
+Build from Source
+
+git clone https://github.com/Rocketplanner83/truefan.git
 cd truefan
+docker build -t rocketplanner83/truefan:latest .
+
+Docker Compose
+
 docker compose up -d
 
+Architecture note:
+    •    truefan-core runs in monitoring-first mode.
+    •    Hardware writes are delegated to the local truefan-control agent.
+    •    If the agent is unavailable, the core API remains available in monitoring-only mode.
 
+Access the dashboard:
+    •    Local: http://localhost:5002
+    •    LAN: http://192.168.x.x:5002
 
-services:
-  truefan:
-    image: rocketplanner83/truefan:latest
-    container_name: truefan
-    restart: unless-stopped
-    privileged: true
-    working_dir: /app
-    ports:
-      - "5002:5002"
-    environment:
-      - TZ=America/Chicago
-    volumes:
-      - /sys:/sys
-      - /dev:/dev
-      - /etc/sensors3.conf:/etc/sensors3.conf:ro
+🔧 Development
+
+Rebuild after changes:
+
+docker compose build --no-cache truefan
+docker compose up -d
+
+View logs:
+
+docker logs -f truefan
+
+🚀 Roadmap
+    •    Custom profile editor in the UI
+    •    Export/import profile configurations
+    •    Improved mobile view
+    •    Integration with Prometheus/Grafana
+
+📜 License
+
+MIT License. See LICENSE for details.
