@@ -20,6 +20,8 @@ COPY entrypoint.sh /app/entrypoint.sh
 
 WORKDIR /app
 RUN chmod +x entrypoint.sh
+RUN useradd -m -u 10001 truefan && chown -R truefan:truefan /app
+USER truefan
 
 # Set ENTRYPOINT correctly
 ENTRYPOINT ["./entrypoint.sh"]
