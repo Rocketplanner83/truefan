@@ -39,10 +39,9 @@ Run from Docker Hub
 
 docker run -d \
   --name truefan \
-  --privileged \
   -p 5002:5002 \
-  -v /sys:/sys \
-  -v /dev:/dev \
+  -v /sys/class/hwmon:/sys/class/hwmon:ro \
+  -v /dev/sda:/dev/sda:ro \
   -v /etc/sensors3.conf:/etc/sensors3.conf:ro \
   rocketplanner83/truefan:latest
 
@@ -55,6 +54,11 @@ docker build -t rocketplanner83/truefan:latest .
 Docker Compose
 
 docker compose up -d
+
+Architecture note:
+    •    truefan-core runs in monitoring-first mode.
+    •    Hardware writes are delegated to the local truefan-control agent.
+    •    If the agent is unavailable, the core API remains available in monitoring-only mode.
 
 Access the dashboard:
     •    Local: http://localhost:5002

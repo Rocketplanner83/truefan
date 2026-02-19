@@ -5,10 +5,10 @@ services:
       dockerfile: Dockerfile
     container_name: truefan
     restart: unless-stopped
-    privileged: true
     volumes:
-      - /sys:/sys
-      - /dev:/dev
+      - /sys/class/hwmon:/sys/class/hwmon:ro
+      # Replace /dev/sda with the target block device as needed.
+      - /dev/sda:/dev/sda:ro
       - /etc/sensors3.conf:/etc/sensors3.conf:ro
     working_dir: /app
     ports:
